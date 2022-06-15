@@ -72,10 +72,204 @@ impl Operator {
     }
 }
 
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+enum C {
+    A,
+    B,
+    C, 
+    AB,
+    CST
+}
+
+#[derive(Debug)]
+struct Coeff {
+    coeff: Vec<C> // constant
+}
+
+
+impl From<Vec<C>> for Coeff {
+    fn from(coeff: Vec<C>) -> Self {
+        assert!(coeff.len() >= 1);
+        assert!(coeff.len() <= 5);
+        Coeff{
+            coeff
+        }
+    }
+}
+
+impl Coeff {
+    fn len(&self) -> usize {
+        self.coeff.len()
+    }
+
+    fn index(&self, t: C) -> Option<usize> {
+        self.coeff.iter().copied().position(|v| v == t)
+    }
+
+    fn a(&self) -> Option<usize> {
+        self.index(C::A)
+    }
+
+    fn b(&self) -> Option<usize> {
+        self.index(C::B)
+    }
+
+    fn c(&self) -> Option<usize> {
+        self.index(C::C)
+    }
+
+    fn cst(&self) -> Option<usize> {
+        self.index(C::CST)
+    }
+
+    fn ab(&self) -> Option<usize> {
+        self.index(C::AB)
+    }
+}
+
+fn mul(l: Option<usize>, r: Option<usize>) -> Option<String> {
+    Some(format!("{{ e1.{} * e2.{} }}", l?, r?))
+}
+
+fn sub(t1: Option<usize>, t2: Option<usize>) -> Option<String> {
+    match (t1, t2) {
+        (Some(v1), Some(v2)) => Some(format!("e1.{} - e2.{}", v1, v2)),
+        (Some(v1), None) => Some(format!("e1.{}", v1)),
+        (None, Some(v2)) => Some(format!("-e2.{}", v2)),
+        _ => None
+    }
+}
+
+fn add(t1: Option<usize>, t2: Option<usize>) -> Option<String> {
+    match (t1, t2) {
+        (Some(v1), Some(v2)) => Some(format!("e1.{} + e2.{}", v1, v2)),
+        (Some(v1), None) => Some(format!("e1.{}", v1)),
+        (None, Some(v2)) => Some(format!("e2.{}", v2)),
+        _ => None
+    }
+}
+
+fn add_seq(t: &[Option<String>]) -> Option<String> {
+    let mut terms = t
+        .iter()
+        .filter(|v| v.is_some())
+        .map(|v| v.as_ref().unwrap());
+
+    let mut sum = terms.next()?.clone();
+
+    for ti in terms {
+        sum.push_str(" + ");
+        sum.push_str(&ti);
+    }
+
+    Some(sum)
+}
+
+fn to_coeff(terms: Vec<(C, Option<String>)>) -> (Coeff, String) {
+    let (coeff, sums): (Vec<C>, Vec<String>) = terms
+        .into_iter()
+        .filter(|(_, sum)| sum.is_some())
+        .map(|(name, sum)| (name, sum.unwrap()))
+        .unzip();
+
+    let coeff = Coeff::from(coeff);
+
+    let mut tuple = String::new();
+
+    // compute terms
+    tuple.push_str("{");
+    for (i, sum) in sums.iter().enumerate() {
+        tuple.push_str(&format!("let t{} = {};", i, sum));
+    }
+
+    // return tuple
+    tuple.push_str("(t0,");
+    for i in 1..coeff.len() {
+        tuple.push_str(&format!("t{},", i));
+    }
+    tuple.push_str(")}");
+
+    (coeff, tuple)
+}
+
 impl Expr {
+    fn compile(&self, assignment: &[Var]) -> (Coeff, String) {
+        match self {
+            Expr::Const(literal) =>
+                (Coeff::from(vec![C::CST]), format!("({},)", literal.to_string())),
+
+            Expr::Field(name) => 
+                (Coeff::from(vec![C::CST]), format!("({},)", name.to_string())),
+
+            Expr::Var(var) => {
+                let idx = assignment.iter().position(|v| v == var).unwrap();
+
+                let term = match idx {
+                    0 => C::A,
+                    1 => C::B,
+                    2 => C::C,
+                    _ => unreachable!()
+                };
+
+                (Coeff::from(vec![term]), format!("(F::one(),)"))
+            },
+            Expr::Op(op, expr1, expr2) => {
+                let (c1, e1) = expr1.compile(assignment);
+                let (c2, e2) = expr2.compile(assignment);
+
+                let terms = match op {
+                    Operator::Mul => vec![
+                        (C::A, add_seq(&[
+                            mul(c1.a(), c2.cst()), 
+                            mul(c2.a(), c1.cst())
+                        ])),
+                        (C::B, add_seq(&[
+                            mul(c1.b(), c2.cst()), 
+                            mul(c2.b(), c1.cst())
+                        ])),
+                        (C::C, add_seq(&[
+                            mul(c1.c(), c2.cst()), 
+                            mul(c2.c(), c1.cst())
+                        ])),
+                        (C::AB, add_seq(&[
+                            mul(c2.cst(), c1.ab()),
+                            mul(c2.cst(), c2.ab()),
+                            mul(c1.a(), c2.b()),
+                            mul(c2.a(), c1.b())
+                        ])),
+                        (C::CST, mul(c1.cst(), c2.cst()))
+                    ],
+                    Operator::Add => vec![
+                        (C::A, add(c1.a(), c2.a())),
+                        (C::B, add(c1.b(), c2.b())),
+                        (C::C, add(c1.c(), c2.c())),
+                        (C::AB, add(c1.ab(), c2.ab())),
+                        (C::CST, add(c1.cst(), c2.cst()))
+                    ],
+                    Operator::Sub => vec![
+                        (C::A, sub(c1.a(), c2.a())),
+                        (C::B, sub(c1.b(), c2.b())),
+                        (C::C, sub(c1.c(), c2.c())),
+                        (C::AB, sub(c1.ab(), c2.ab())),
+                        (C::CST, sub(c1.cst(), c2.cst()))
+                    ],
+                };
+            
+                let (coeff, tuple) = to_coeff(terms);
+
+                (
+                    coeff, 
+                    format!("{{ let e1 = {}; let e2 = {}; {} }}", e1, e2, tuple)
+                )
+            } 
+        }
+    }
+
     // checks (at compile time) that the expr 
     // can be implemnted using a generic gate, 
     // i.e. it does not have too high degree.
+    //
+    // And figures out the assignment of a,b,c.
     //
     // Because of this check we can compile to code which "could fail at run-time",
     // however because of this static analysis it cannot.
@@ -284,7 +478,7 @@ fn parse_op(o: TokenTree) -> Option<Operator> {
                 '*' => Some(Operator::Mul),
                 '+' => Some(Operator::Add),
                 '-' => Some(Operator::Sub),
-                _ => panic!("Unexpected operator")
+                _ => panic!("unexpected operator {}", op)
             }
         }
         _ => None
@@ -434,21 +628,49 @@ pub fn generic(input: TokenStream) -> TokenStream {
     let expr = parse_top(&vars, group(&mut args).expect("expected group")).unwrap();
 
     // check that the constraints can be enforced using a generic gate
-    let ass = expr.compute_assigment();
+    let assignment = expr.compute_assigment();
 
-    // convert to TokenStream
-    let expr = expr.render();
+    // compile expression for computing coefficients
+    let (coeff, e) = expr.compile(&assignment[..]);
 
-    // enforce the expr (should be 0)
-    let path = "crate";
-    let prog = format!(
-        "{{ use {}::GenericExpr; let expr0 = {}; expr0.enforce({}) }}",
-        path,
-        expr,
-        cs
-    );
+    // convert to row vector
+    println!("{}", e);
 
+    let mut prog = String::new();
+
+    prog.push_str("{\n");
+    prog.push_str("let mut c = vec![F::zero(); GENERIC_ROW_COEFFS];\n");
+
+    // coefficient vector
+    prog.push_str(&format!("let e = {};\n", e));
+    coeff.index(C::A).map(|i| prog.push_str(&format!("c[0] = e.{}; // a\n", i)));
+    coeff.index(C::B).map(|i| prog.push_str(&format!("c[1] = e.{}; // b\n", i)));
+    coeff.index(C::C).map(|i| prog.push_str(&format!("c[2] = e.{}; // c\n", i)));
+    coeff.index(C::AB).map(|i| prog.push_str(&format!("c[3] = e.{}; // ab\n", i)));
+    coeff.index(C::CST).map(|i| prog.push_str(&format!("c[4] = e.{}; // const\n", i)));
+
+    // witness array
+    prog.push_str("let row = array_init(|i| {\n");
+    prog.push_str("    match i { \n");
+    for (i, var) in assignment.iter().enumerate() {
+        prog.push_str(&format!("        {} => {},\n", i, var.name));
+    }
+    prog.push_str(&format!("        _ => {}.var(|| F::zero()),\n", cs.to_string()));
+    prog.push_str("    }\n");
+    prog.push_str("});\n");
+
+    // add gate
+    prog.push_str(&format!("{}.gate(GateSpec {{\n", cs.to_string()));
+    prog.push_str("    typ: GateType::Generic,\n");
+    prog.push_str("    row,\n");
+    prog.push_str("    c,\n");
+    prog.push_str("});\n");
+
+    prog.push_str("}");
+
+  
     println!("{}", prog);
+
 
     // convert to token stream
     prog.parse().unwrap()

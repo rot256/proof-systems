@@ -145,6 +145,7 @@ type Row<V> = [V; COLUMNS];
 use generic_gate::generic;
 
 
+/*
 // (v1 * 6 + 2) * (v2 * 6) + v2 * 7 = v1 * v2 + v1 * 6 + v2 * 6 * 6*6
 #[derive(Clone)]
 pub struct GenericTerm<F: FftField + PrimeField> {
@@ -160,7 +161,6 @@ pub struct GenericExpr<F: FftField + PrimeField> {
     constant: F
 }
 
-/*
 impl <F: FftField + PrimeField> Into<GenericTerm<F>> for Var<F> {
     fn into(self) -> GenericTerm<F> {
         GenericTerm{
@@ -209,7 +209,6 @@ impl <F: FftField + PrimeField> Neg for GenericEq<F> {
     }
 }
 
-*/
 
 impl <F: FftField + PrimeField> Add for GenericExpr<F> {
     type Output = Self;
@@ -275,6 +274,8 @@ impl <F: FftField + PrimeField> Mul for GenericExpr<F> {
     }
 }
 
+*/
+
 pub trait Cs<F: FftField + PrimeField> {
     fn var<G>(&mut self, g: G) -> Var<F>
     where
@@ -325,10 +326,11 @@ pub trait Cs<F: FftField + PrimeField> {
         let v3 = self.var(|| unimplemented!());
 
         
-        let w4 = self.var(|| unimplemented!());
+        let w5 = F::from(5u8);
+        let w6 = F::from(6u8);
 
         // format is ala. Camenisch
-        generic!(self, (v1, v2, v3) : { (v1 * 5) * (v2 * 6) + v1 * v2 == v3 });
+        generic!(self, (v1, v2, v3) : { (v1 * w5) * (v2 * w6) + v1 * v2 == v3 });
 
 
         /*
