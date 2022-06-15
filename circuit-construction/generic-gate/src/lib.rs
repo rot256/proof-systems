@@ -1,23 +1,13 @@
-
-use proc_macro::{TokenStream, Ident, Literal, Delimiter, TokenTree, Group};
+use proc_macro::{Delimiter, Group, Ident, Literal, TokenStream, TokenTree};
 
 use std::boxed::Box;
 use std::cmp::Ordering;
 use std::compile_error;
 
-use ark_ff::{PrimeField, FftField};
-
-
-/*
-fn is_var<F: PrimeField + FftField>(v: Var<F>) -> Var<F> {
-    v
-}
-*/
-
 #[derive(Debug, Clone)]
 struct Var {
     ident: Ident,
-    name: String
+    name: String,
 }
 
 impl From<Ident> for Var {
@@ -52,14 +42,14 @@ enum Expr {
     Op(Operator, Box<Expr>, Box<Expr>),
     Const(Literal),
     Field(Ident), // identifier which is a field element
-    Var(Var) // free variable (witness)
+    Var(Var),     // free variable (witness)
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum Operator {
     Mul,
     Add,
-    Sub
+    Sub,
 }
 
 impl Operator {
@@ -67,7 +57,7 @@ impl Operator {
         match self {
             Operator::Mul => "*",
             Operator::Add => "+",
-            Operator::Sub => "-"
+            Operator::Sub => "-",
         }
     }
 }
@@ -76,24 +66,21 @@ impl Operator {
 enum C {
     A,
     B,
-    C, 
+    C,
     AB,
-    CST
+    CST,
 }
 
 #[derive(Debug)]
 struct Coeff {
-    coeff: Vec<C> // constant
+    coeff: Vec<C>, // constant
 }
-
 
 impl From<Vec<C>> for Coeff {
     fn from(coeff: Vec<C>) -> Self {
         assert!(coeff.len() >= 1);
         assert!(coeff.len() <= 5);
-        Coeff{
-            coeff
-        }
+        Coeff { coeff }
     }
 }
 
@@ -136,7 +123,7 @@ fn sub(t1: Option<usize>, t2: Option<usize>) -> Option<String> {
         (Some(v1), Some(v2)) => Some(format!("e1.{} - e2.{}", v1, v2)),
         (Some(v1), None) => Some(format!("e1.{}", v1)),
         (None, Some(v2)) => Some(format!("-e2.{}", v2)),
-        _ => None
+        _ => None,
     }
 }
 
@@ -145,7 +132,7 @@ fn add(t1: Option<usize>, t2: Option<usize>) -> Option<String> {
         (Some(v1), Some(v2)) => Some(format!("e1.{} + e2.{}", v1, v2)),
         (Some(v1), None) => Some(format!("e1.{}", v1)),
         (None, Some(v2)) => Some(format!("e2.{}", v2)),
-        _ => None
+        _ => None,
     }
 }
 
@@ -195,11 +182,15 @@ fn to_coeff(terms: Vec<(C, Option<String>)>) -> (Coeff, String) {
 impl Expr {
     fn compile(&self, assignment: &[Var]) -> (Coeff, String) {
         match self {
-            Expr::Const(literal) =>
-                (Coeff::from(vec![C::CST]), format!("({},)", literal.to_string())),
+            Expr::Const(literal) => (
+                Coeff::from(vec![C::CST]),
+                format!("({},)", literal.to_string()),
+            ),
 
-            Expr::Field(name) => 
-                (Coeff::from(vec![C::CST]), format!("({},)", name.to_string())),
+            Expr::Field(name) => (
+                Coeff::from(vec![C::CST]),
+                format!("({},)", name.to_string()),
+            ),
 
             Expr::Var(var) => {
                 let idx = assignment.iter().position(|v| v == var).unwrap();
@@ -208,74 +199,74 @@ impl Expr {
                     0 => C::A,
                     1 => C::B,
                     2 => C::C,
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
 
                 (Coeff::from(vec![term]), format!("(F::one(),)"))
-            },
+            }
             Expr::Op(op, expr1, expr2) => {
                 let (c1, e1) = expr1.compile(assignment);
                 let (c2, e2) = expr2.compile(assignment);
 
                 let terms = match op {
                     Operator::Mul => vec![
-                        (C::A, add_seq(&[
-                            mul(c1.a(), c2.cst()), 
-                            mul(c2.a(), c1.cst())
-                        ])),
-                        (C::B, add_seq(&[
-                            mul(c1.b(), c2.cst()), 
-                            mul(c2.b(), c1.cst())
-                        ])),
-                        (C::C, add_seq(&[
-                            mul(c1.c(), c2.cst()), 
-                            mul(c2.c(), c1.cst())
-                        ])),
-                        (C::AB, add_seq(&[
-                            mul(c2.cst(), c1.ab()),
-                            mul(c2.cst(), c2.ab()),
-                            mul(c1.a(), c2.b()),
-                            mul(c2.a(), c1.b())
-                        ])),
-                        (C::CST, mul(c1.cst(), c2.cst()))
+                        (
+                            C::A,
+                            add_seq(&[mul(c1.a(), c2.cst()), mul(c2.a(), c1.cst())]),
+                        ),
+                        (
+                            C::B,
+                            add_seq(&[mul(c1.b(), c2.cst()), mul(c2.b(), c1.cst())]),
+                        ),
+                        (
+                            C::C,
+                            add_seq(&[mul(c1.c(), c2.cst()), mul(c2.c(), c1.cst())]),
+                        ),
+                        (
+                            C::AB,
+                            add_seq(&[
+                                mul(c2.cst(), c1.ab()),
+                                mul(c2.cst(), c2.ab()),
+                                mul(c1.a(), c2.b()),
+                                mul(c2.a(), c1.b()),
+                            ]),
+                        ),
+                        (C::CST, mul(c1.cst(), c2.cst())),
                     ],
                     Operator::Add => vec![
                         (C::A, add(c1.a(), c2.a())),
                         (C::B, add(c1.b(), c2.b())),
                         (C::C, add(c1.c(), c2.c())),
                         (C::AB, add(c1.ab(), c2.ab())),
-                        (C::CST, add(c1.cst(), c2.cst()))
+                        (C::CST, add(c1.cst(), c2.cst())),
                     ],
                     Operator::Sub => vec![
                         (C::A, sub(c1.a(), c2.a())),
                         (C::B, sub(c1.b(), c2.b())),
                         (C::C, sub(c1.c(), c2.c())),
                         (C::AB, sub(c1.ab(), c2.ab())),
-                        (C::CST, sub(c1.cst(), c2.cst()))
+                        (C::CST, sub(c1.cst(), c2.cst())),
                     ],
                 };
-            
+
                 let (coeff, tuple) = to_coeff(terms);
 
                 (
-                    coeff, 
-                    format!("{{ let e1 = {}; let e2 = {}; {} }}", e1, e2, tuple)
+                    coeff,
+                    format!("{{ let e1 = {}; let e2 = {}; {} }}", e1, e2, tuple),
                 )
-            } 
+            }
         }
     }
 
-    // checks (at compile time) that the expr 
-    // can be implemnted using a generic gate, 
+    // checks (at compile time) that the expr
+    // can be implemnted using a generic gate,
     // i.e. it does not have too high degree.
     //
     // And figures out the assignment of a,b,c.
-    //
-    // Because of this check we can compile to code which "could fail at run-time",
-    // however because of this static analysis it cannot.
     fn compute_assigment(&self) -> Vec<Var> {
         let mut mul: Option<(Ident, Ident)> = None;
-        
+
         fn variables(expr: &Expr) -> Vec<Var> {
             match expr {
                 Expr::Var(var) => vec![var.clone()],
@@ -292,7 +283,7 @@ impl Expr {
 
         fn check_muls(expr: &Expr) -> Option<[Var; 2]> {
             match expr {
-                Expr::Var(name) => None,
+                Expr::Var(_) => None,
                 Expr::Op(op, l, r) => {
                     let vl = variables(l);
                     let vr = variables(r);
@@ -318,95 +309,57 @@ impl Expr {
                                 }
                             }
                         }
-                        // linear operator: check that we dont 
+                        // linear operator: check that we dont
                         // have multiple distinct multiplications
                         _ => {
                             if ml == mr {
-                                return ml
+                                return ml;
                             }
                             if ml.is_none() {
-                                return mr
+                                return mr;
                             }
                             if mr.is_none() {
-                                return ml
+                                return ml;
                             }
                             // both Some and not the same :(
                             panic!("more than 1 distinct multiplication")
                         }
-                    }   
+                    }
                 }
                 _ => None,
             }
         }
 
-        // 
+        //
         let vars = variables(self);
 
         // figure out which variables corresponds to a,b,c
-        let ass = match check_muls(self) {
+        let assigment = match check_muls(self) {
             Some(mul) => {
                 // assign a and b
-                let mut ass = vec![];
-                ass.extend(mul);
+                let mut assigment = vec![];
+                assigment.extend(mul);
 
                 // find c variable
-                if vars.len() > ass.len() {
+                if vars.len() > assigment.len() {
                     for var in vars.iter() {
-                        if !ass.contains(var) {
-                            ass.push(var.clone())
+                        if !assigment.contains(var) {
+                            assigment.push(var.clone())
                         }
                     }
                 }
 
-                assert!(ass.len() <= 3);
-                ass
+                assert!(assigment.len() <= 3);
+                assigment
             }
-            None => vars
+            None => vars,
         };
 
-        println!("assignment = {:?}", ass);
-
-        ass
-    }
-
-    // flattens an expression which should be zero
-    fn render(self) -> String {
-        println!("{:?}", self);
-
-        match self {
-            Expr::Op(op, expr1, expr2) => {
-                println!("op = {:?} {}", op, op.as_str());
-                format!(
-                    "{{ let expr1 = {}; let expr2 = {}; expr1 {} expr2}}",
-                    expr1.render(),
-                    expr2.render(),
-                    op.as_str()
-                )
-            }
-            Expr::Field(ident) => {
-                format!(
-                    "{{ GenericExpr::from_constant({})}}", 
-                    ident.to_string()
-                )
-            }
-            Expr::Var(var) => {
-                format!(
-                    "{{ GenericExpr::from_var({}) }}",
-                    var.name
-                )
-            }
-            Expr::Const(val) => {
-                format!(
-                    "{{ GenericExpr::from_constant({}) }}",
-                    val.to_string()
-                )
-            }
-            _ => unimplemented!()
-        }
+        assigment
     }
 }
 
-fn parse_term(vars: &[Var], e: TokenTree) -> Option<Expr> {  
+fn parse_term(vars: &[Var], e: TokenTree) -> Option<Expr> {
     match e {
         TokenTree::Group(sub_expr) => {
             assert_eq!(sub_expr.delimiter(), Delimiter::Parenthesis);
@@ -420,12 +373,10 @@ fn parse_term(vars: &[Var], e: TokenTree) -> Option<Expr> {
                 Some(Expr::Field(var.ident))
             }
         }
-        TokenTree::Literal(literal) => {
-            Some(Expr::Const(literal))
-        }
-        _ => None
+        TokenTree::Literal(literal) => Some(Expr::Const(literal)),
+        _ => None,
     }
-} 
+}
 
 const EQ: char = '=';
 const CONS_EQ: usize = 2;
@@ -439,7 +390,6 @@ fn parse_top(vars: &[Var], expr: Group) -> Option<Expr> {
     let mut j = 0;
     let mut cons_eq: usize = 0;
     for (i, token) in tokens.iter().enumerate() {
-        
         if let TokenTree::Punct(punct) = token {
             if punct.as_char() == EQ {
                 cons_eq += 1;
@@ -452,15 +402,13 @@ fn parse_top(vars: &[Var], expr: Group) -> Option<Expr> {
 
         // check if we should split
         if cons_eq == CONS_EQ {
-            splits.push(&tokens[j..i-CONS_EQ+1]);
-            j = i+1;
+            splits.push(&tokens[j..i - CONS_EQ + 1]);
+            j = i + 1;
             cons_eq = 0;
         }
     }
 
     splits.push(&tokens[j..]);
-
-    println!("{:#?}", splits);
 
     assert_eq!(splits.len(), 2);
 
@@ -470,18 +418,15 @@ fn parse_top(vars: &[Var], expr: Group) -> Option<Expr> {
     return Some(Expr::Op(Operator::Sub, Box::new(left), Box::new(right)));
 }
 
-
 fn parse_op(o: TokenTree) -> Option<Operator> {
     match o {
-        TokenTree::Punct(op) => {
-            match op.as_char() {
-                '*' => Some(Operator::Mul),
-                '+' => Some(Operator::Add),
-                '-' => Some(Operator::Sub),
-                _ => panic!("unexpected operator {}", op)
-            }
-        }
-        _ => None
+        TokenTree::Punct(op) => match op.as_char() {
+            '*' => Some(Operator::Mul),
+            '+' => Some(Operator::Add),
+            '-' => Some(Operator::Sub),
+            _ => panic!("unexpected operator {}", op),
+        },
+        _ => None,
     }
 }
 
@@ -490,7 +435,7 @@ fn parse_expr(vars: &[Var], expr: TokenStream) -> Option<Expr> {
     let mut ops: Vec<Operator> = vec![];
     let mut terms: Vec<Expr> = vec![];
     let mut is_term: bool = true;
- 
+
     for token in expr.into_iter() {
         // parse term or operator
         if is_term {
@@ -506,11 +451,11 @@ fn parse_expr(vars: &[Var], expr: TokenStream) -> Option<Expr> {
     // we should finish with a term
     assert_eq!(is_term, false);
 
-    // 
+    //
     let prec = vec![
         Operator::Mul, // binds tightest
         Operator::Add,
-        Operator::Sub
+        Operator::Sub,
     ];
 
     // repeatedly coalesce terms
@@ -528,7 +473,7 @@ fn parse_expr(vars: &[Var], expr: TokenStream) -> Option<Expr> {
                     continue 'coalesce;
                 }
             }
-            break
+            break;
         }
     }
 
@@ -559,23 +504,23 @@ fn parse_vars(token: TokenTree) -> Vec<Var> {
         assert!(sep.into_iter().all(|c| c == ','));
 
         // parse as literals
-        let vars: Vec<Var> = vars.into_iter().map(|v| {
-            match v {
+        let vars: Vec<Var> = vars
+            .into_iter()
+            .map(|v| match v {
                 TokenTree::Ident(ident) => ident.into(),
                 _ => panic!("variables must be identifiers, not {:?}", v),
-            }
-        }).collect();
+            })
+            .collect();
 
         // check length
         if vars.len() == 0 || vars.len() > 3 {
             panic!("generic gate must have between 1-3 variables");
         }
 
-        return vars
+        return vars;
     } else {
         panic!("variables must be a tuple");
     }
-
 }
 
 fn token<I: Iterator<Item = TokenTree>>(stream: &mut I) -> Option<TokenTree> {
@@ -585,28 +530,21 @@ fn token<I: Iterator<Item = TokenTree>>(stream: &mut I) -> Option<TokenTree> {
 fn punct<I: Iterator<Item = TokenTree>>(stream: &mut I) -> Option<char> {
     match stream.next()? {
         TokenTree::Punct(punct) => Some(punct.as_char()),
-        _ => None
+        _ => None,
     }
 }
 
 fn group<I: Iterator<Item = TokenTree>>(stream: &mut I) -> Option<Group> {
     match stream.next()? {
         TokenTree::Group(group) => Some(group),
-        _ => None
+        _ => None,
     }
 }
 
 fn seperator<I: Iterator<Item = TokenTree>>(stream: &mut I, sep: char) -> Result<(), &str> {
     match punct(stream) {
         Some(sep) => Ok(()),
-        _ => Err("invalid/missing seperator")
-    }
-}
-
-fn end<I: Iterator<Item = TokenTree>>(stream: &mut I, sep: char) -> Result<(), &str> {
-    match token(stream) {
-        Some(_) => Err("expected end of stream"),
-        None => Ok(())
+        _ => Err("invalid/missing seperator"),
     }
 }
 
@@ -618,7 +556,7 @@ pub fn generic(input: TokenStream) -> TokenStream {
     let mut args = input.into_iter();
 
     let cs = token(&mut args).expect("cs missing");
-    
+
     seperator(&mut args, ',').unwrap();
 
     let vars = parse_vars(token(&mut args).expect("variable failed to parse"));
@@ -633,9 +571,7 @@ pub fn generic(input: TokenStream) -> TokenStream {
     // compile expression for computing coefficients
     let (coeff, e) = expr.compile(&assignment[..]);
 
-    // convert to row vector
-    println!("{}", e);
-
+    // convert to generic gate
     let mut prog = String::new();
 
     prog.push_str("{\n");
@@ -643,11 +579,26 @@ pub fn generic(input: TokenStream) -> TokenStream {
 
     // coefficient vector
     prog.push_str(&format!("let e = {};\n", e));
-    coeff.index(C::A).map(|i| prog.push_str(&format!("c[0] = e.{}; // a\n", i)));
-    coeff.index(C::B).map(|i| prog.push_str(&format!("c[1] = e.{}; // b\n", i)));
-    coeff.index(C::C).map(|i| prog.push_str(&format!("c[2] = e.{}; // c\n", i)));
-    coeff.index(C::AB).map(|i| prog.push_str(&format!("c[3] = e.{}; // ab\n", i)));
-    coeff.index(C::CST).map(|i| prog.push_str(&format!("c[4] = e.{}; // const\n", i)));
+
+    coeff
+        .index(C::A)
+        .map(|i| prog.push_str(&format!("c[0] = e.{}; // a\n", i)));
+
+    coeff
+        .index(C::B)
+        .map(|i| prog.push_str(&format!("c[1] = e.{}; // b\n", i)));
+
+    coeff
+        .index(C::C)
+        .map(|i| prog.push_str(&format!("c[2] = e.{}; // c\n", i)));
+
+    coeff
+        .index(C::AB)
+        .map(|i| prog.push_str(&format!("c[3] = e.{}; // ab\n", i)));
+
+    coeff
+        .index(C::CST)
+        .map(|i| prog.push_str(&format!("c[4] = e.{}; // const\n", i)));
 
     // witness array
     prog.push_str("let row = array_init(|i| {\n");
@@ -655,11 +606,14 @@ pub fn generic(input: TokenStream) -> TokenStream {
     for (i, var) in assignment.iter().enumerate() {
         prog.push_str(&format!("        {} => {},\n", i, var.name));
     }
-    prog.push_str(&format!("        _ => {}.var(|| F::zero()),\n", cs.to_string()));
+    prog.push_str(&format!(
+        "        _ => {}.var(|| F::zero()),\n",
+        cs.to_string()
+    ));
     prog.push_str("    }\n");
     prog.push_str("});\n");
 
-    // add gate
+    // add generic gate
     prog.push_str(&format!("{}.gate(GateSpec {{\n", cs.to_string()));
     prog.push_str("    typ: GateType::Generic,\n");
     prog.push_str("    row,\n");
@@ -667,10 +621,6 @@ pub fn generic(input: TokenStream) -> TokenStream {
     prog.push_str("});\n");
 
     prog.push_str("}");
-
-  
-    println!("{}", prog);
-
 
     // convert to token stream
     prog.parse().unwrap()
