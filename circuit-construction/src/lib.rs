@@ -15,6 +15,8 @@ use mina_curves::pasta::{fp::Fp, fq::Fq, pallas::Affine as Other, vesta::Affine}
 use oracle::{constants::*, permutation::full_round, poseidon::ArithmeticSpongeParams, FqSponge};
 use std::collections::HashMap;
 
+use std::ops::{Add, Neg, Sub, Mul};
+
 pub const GENERICS: usize = 3;
 pub const ZK_ROWS: usize = kimchi::circuits::polynomials::permutation::ZK_ROWS as usize;
 
@@ -140,6 +142,139 @@ pub struct WitnessGenerator<F> {
 
 type Row<V> = [V; COLUMNS];
 
+use generic_gate::generic;
+
+
+// (v1 * 6 + 2) * (v2 * 6) + v2 * 7 = v1 * v2 + v1 * 6 + v2 * 6 * 6*6
+#[derive(Clone)]
+pub struct GenericTerm<F: FftField + PrimeField> {
+    var: Var<F>,
+    mul: F,
+}
+
+pub struct GenericExpr<F: FftField + PrimeField> {
+    a: (F, Option<Var<F>>),
+    b: (F, Option<Var<F>>),
+    c: (F, Option<Var<F>>),
+    product: F,
+    constant: F
+}
+
+/*
+impl <F: FftField + PrimeField> Into<GenericTerm<F>> for Var<F> {
+    fn into(self) -> GenericTerm<F> {
+        GenericTerm{
+            var: self,
+            mul: F::one(),
+        }
+    }
+}
+
+impl <F: FftField + PrimeField> Into<GenericEq<F>> for Var<F> {
+    fn into(self) -> GenericEq<F> {
+        GenericEq::Affine{
+
+        }
+            a: Some(self.into()),
+            b: None,
+            c: None,
+            product: F::zero(),
+            constant: F::zero()
+        }
+    }
+}
+
+impl <F: FftField + PrimeField> Neg for GenericTerm<F> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            var: self.var,
+            mul: -self.mul
+        }
+    }
+}
+
+impl <F: FftField + PrimeField> Neg for GenericEq<F> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            a: self.a.map(|a| -a),
+            b: self.b.map(|b| -b),
+            c: self.c.map(|c| -c),
+            product: -self.product,
+            constant: -self.constant
+        }
+    }
+}
+
+*/
+
+impl <F: FftField + PrimeField> Add for GenericExpr<F> {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        unimplemented!()
+    }
+}
+
+impl <F: PrimeField + FftField> GenericExpr<F> {
+    fn from_constant<T: Into<F>>(value: T) -> Self {
+        GenericExpr{
+            a: (F::zero(), None),
+            b: (F::zero(), None),
+            c: (F::zero(), None),,
+            constant: value.into(),
+            product: F::zero(), // a*b coefficient
+        }
+    }
+
+    fn from_var(var: Var<F>) -> Self {
+        GenericExpr{
+            a: (F::one(), Some(var)),
+            b: (F::zero(), None),
+            c: (F::zero(), None),
+            constant: value.into(),
+            product: F::zero(), // a*b coefficient
+        }
+    }
+}
+
+// If there is one free variable in both affine combinations
+// we can enforce the multiplication.
+impl <F: FftField + PrimeField> Mul for GenericExpr<F> {
+    type Output = GenericExpr<F>;
+
+    fn mul(self, other: Self) -> Self::Output {
+        
+        // select a / b arbitraily
+        let (mut ca, mut a) = self.a.clone();
+        let (mut cb, mut b) = other.a.clone();
+
+        
+        
+        debug_assert!(self.b.is_none());
+        debug_assert!(self.c.is_none());
+        debug_assert_eq!(self.product, F::zero());
+
+        debug_assert!(other.b.is_none());
+        debug_assert!(other.c.is_none());
+        debug_assert_eq!(other.product, F::zero());
+
+        GenericProduct {
+            a: t1.mul * self.constant,
+            b: GenericTerm{
+                var: t2.var, 
+                mul: t2.mul * other.constant, // cross term
+            },
+            c: None,
+            product: ca.mul * cb.mul,
+            constant: self.constant * other.constant
+        }
+    }
+}
+
 pub trait Cs<F: FftField + PrimeField> {
     fn var<G>(&mut self, g: G) -> Var<F>
     where
@@ -183,6 +318,39 @@ pub trait Cs<F: FftField + PrimeField> {
     }
 
     fn gate(&mut self, g: GateSpec<F>);
+    
+    fn test(&mut self) {
+        let v1 = self.var(|| unimplemented!());
+        let v2 = self.var(|| unimplemented!());
+        let v3 = self.var(|| unimplemented!());
+
+        
+        let w4 = self.var(|| unimplemented!());
+
+        // format is ala. Camenisch
+        generic!(self, (v1, v2, v3) : { (v1 * 5) * (v2 * 6) + v1 * v2 == v3 });
+
+
+        /*
+        // can make use of constants outside (w1, w2, w3)
+        // anything not in the variable list is forced (at compile time) to be a field element
+        generic!(cs, (v1, v2, v3) : { (v1 + w2) * (v2 + w2) - v3 + w3 == 4 });
+
+        // here is an addition gate
+        generic!(cs, (v1, v2, v3) : { v1 + v2 == v3 });
+
+        // inversion
+        generic!(cs, (v1, v2) : { v1 * v2 == F::one() });
+
+        // multiplication
+        generic!(cs, (v1, v2) : { v1 * v2 == v3 });
+
+        // equality
+        generic!(cs, (v1, v2) : { v1 == v2 });
+        */
+    }
+    
+
 
     // Constrains: out = a_c*a + b_c*b + ab_c*a*b + constant
     //
@@ -446,6 +614,11 @@ pub trait Cs<F: FftField + PrimeField> {
     // out = m1 * m2
     fn mul(&mut self, m0: Var<F>, m1: Var<F>) -> Var<F> {
         let m2 = self.var(|| m0.val() * m1.val());
+
+
+
+
+       
 
         //
         let row = array_init(|i| {
