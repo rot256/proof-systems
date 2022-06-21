@@ -197,7 +197,9 @@ pub trait Cs<F: FftField + PrimeField> {
         let w6 = F::from(6u8);
 
         // format is ala. Camenisch
-        generic!(self, (v1, v2, v3) : { (v1 * w5) * (v2 * w6) + v1 * v2 == v3 });
+        generic!(self, (v1, v2) : { (v1 + w5) * (v2 + w6) == ? });
+
+        /*
 
         // here is an addition gate
         generic!(self, (v1, v2, v3) : { v1 + v2 == v3 });
@@ -217,6 +219,7 @@ pub trait Cs<F: FftField + PrimeField> {
 
         // equality
         generic!(self, (v1, v2) : { v1 == v2 });
+        */
     }
 
     // Constrains: out = a_c*a + b_c*b + ab_c*a*b + constant
